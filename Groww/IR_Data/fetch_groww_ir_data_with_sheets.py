@@ -30,13 +30,13 @@ CREDENTIALS_PATH = os.path.join(SCRIPT_DIR, 'google_sheets_creds.json')
 IN_GITHUB_ACTIONS = os.environ.get('GITHUB_ACTIONS', 'false').lower() == 'true'
 
 def load_previous_metric_values():
-    """Load previous metric values from file"""
+    """Load previous metric values from file for change detection"""
     if os.path.exists(PREVIOUS_VALUES_FILE):
         try:
             with open(PREVIOUS_VALUES_FILE, 'r') as f:
                 return json.load(f)
         except Exception as e:
-            print(f"[WARNING] Could not load previous values: {e}")
+            return {}
     return {}
 
 def save_previous_metric_values(values_dict):
@@ -44,11 +44,11 @@ def save_previous_metric_values(values_dict):
     try:
         with open(PREVIOUS_VALUES_FILE, 'w') as f:
             json.dump(values_dict, f, indent=2)
-    except Exception as e:
-        print(f"[WARNING] Could not save previous values: {e}")
+    except Exception:
+        pass
 
 def get_metric_value_key(metric_type, epoch_timestamp):
-    """Create a unique key for metric value tracking"""
+    """Create unique key for tracking metric values"""
     return f"{metric_type}_{epoch_timestamp}"
 
 def get_google_sheets_client():
@@ -63,7 +63,7 @@ def get_google_sheets_client():
             # Running in GitHub Actions - use credentials from environment variable
             credentials_json = os.environ.get('GOOGLE_SHEETS_CREDENTIALS')
             if not credentials_json:
-                print("[WARNING] GOOGLE_SHEETS_CREDENTIALS not set in GitHub Secrets")
+                print("⚠️  GOOGLE_SHEETS_CREDENTIALS not set in GitHub Secrets")
                 return None
             
             # Parse JSON string
@@ -73,7 +73,7 @@ def get_google_sheets_client():
         else:
             # Running locally - use credentials file
             if not os.path.exists(CREDENTIALS_PATH):
-                print("[WARNING] Google Sheets credentials not found at:", CREDENTIALS_PATH)
+                print("⚠️  Google Sheets credentials not found at:", CREDENTIALS_PATH)
                 print("   Skipping Google Sheets integration")
                 return None
             
@@ -84,7 +84,7 @@ def get_google_sheets_client():
         return client
     
     except Exception as e:
-        print(f"[WARNING] Error connecting to Google Sheets: {e}")
+        print(f"⚠️  Error connecting to Google Sheets: {e}")
         return None
 
 def epoch_to_formatted_time(epoch_ms):
@@ -152,12 +152,12 @@ def fetch_groww_data(params=None, headers=None):
         response.raise_for_status()
         
         data = response.json()
-        print("[OK] Data fetched successfully!")
+        print("✓ Data fetched successfully!")
         
         return data
     
     except requests.exceptions.RequestException as e:
-        print(f"[ERROR] Error fetching data: {e}")
+        print(f"✗ Error fetching data: {e}")
         return None
 
 def save_to_csv(data):
@@ -192,7 +192,7 @@ def save_to_csv(data):
             df = pd.DataFrame(records)
             file_exists = os.path.exists(filepath)
             df.to_csv(filepath, mode='a', header=not file_exists, index=False)
-            print(f"[OK] CSV: {len(records)} records appended")
+            print(f"✓ CSV: {len(records)} records appended")
         else:
             print("No records to save to CSV.")
     except Exception as e:
@@ -201,8 +201,8 @@ def save_to_csv(data):
 def save_to_google_sheets(data, client):
     """
     Save API response to Google Sheets
-    Creates "All Data" sheet and individual metric type sheets
-    Only saves metric sheets when values change (avoids duplicates)
+    - All Data sheet: Always saves all records (historical)
+    - Metric sheets: Only saves when values change (deduplication)
     
     Args:
         data (dict): Data to save
@@ -212,7 +212,7 @@ def save_to_google_sheets(data, client):
         return
     
     try:
-        # Load previous values for comparison
+        # Load previous values for change detection
         previous_values = load_previous_metric_values()
         current_values = {}
         
@@ -230,45 +230,44 @@ def save_to_google_sheets(data, client):
                 
                 for value_obj in values:
                     epoch_timestamp = value_obj.get('timestamp')
-                    converted_value = value_obj.get('value')
-                    converted_value_formatted = convert_to_crores(converted_value, metric_type)
+                    raw_value = value_obj.get('value')
+                    converted_value = convert_to_crores(raw_value, metric_type)
                     
                     # Create key for tracking
                     value_key = get_metric_value_key(metric_type, epoch_timestamp)
-                    current_values[value_key] = converted_value
+                    current_values[value_key] = raw_value
                     
                     # All Data sheet: Always append (historical record)
                     all_data_record = [
                         fetch_time_gmt,
                         metric_type,
                         epoch_timestamp,
-                        converted_value_formatted
+                        converted_value
                     ]
                     all_records.append(all_data_record)
                     
                     # Metric sheet: Only append if value changed
                     previous_value = previous_values.get(value_key)
-                    if previous_value is None or previous_value != converted_value:
+                    if previous_value is None or previous_value != raw_value:
                         metric_record = [
                             metric_type,
                             epoch_timestamp,
-                            converted_value_formatted
+                            converted_value
                         ]
                         metric_records[metric_type].append(metric_record)
         
-        # Update "All Data" sheet (always append)
+        # Update "All Data" sheet (always)
         try:
             all_data_sheet = spreadsheet.worksheet("All Data")
         except gspread.exceptions.WorksheetNotFound:
             all_data_sheet = spreadsheet.add_worksheet(title="All Data", rows=1000, cols=4)
-            # Add header
             all_data_sheet.append_row([
                 'Fetch Time', 'Metric Type', 'Epoch Timestamp', 'Value'
             ])
         
         if all_records:
             all_data_sheet.append_rows(all_records)
-            print(f"[OK] Google Sheets (All Data): {len(all_records)} records appended")
+            print(f"✓ Google Sheets (All Data): {len(all_records)} records appended")
         
         # Update metric-specific sheets (only changed values)
         changed_count = 0
@@ -280,7 +279,6 @@ def save_to_google_sheets(data, client):
                     metric_sheet = spreadsheet.worksheet(sheet_name)
                 except gspread.exceptions.WorksheetNotFound:
                     metric_sheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=3)
-                    # Add header for metric sheets
                     metric_sheet.append_row([
                         'Metric Type', 'Epoch Timestamp', 'Value'
                     ])
@@ -289,19 +287,17 @@ def save_to_google_sheets(data, client):
                 changed_count += len(records)
         
         if changed_count > 0:
-            print(f"[OK] Google Sheets: {changed_count} changed metric values appended")
+            print(f"✓ Google Sheets: {changed_count} changed metric values saved")
         else:
-            print("[OK] Google Sheets: No metric values changed")
+            print("✓ Google Sheets: No metric values changed")
         
         # Save current values for next comparison
         save_previous_metric_values(current_values)
     
     except gspread.exceptions.APIError as e:
-        print(f"[ERROR] Google Sheets API Error: {e}")
+        print(f"✗ Google Sheets API Error: {e}")
     except Exception as e:
-        print(f"[ERROR] Error updating Google Sheets: {e}")
-    except Exception as e:
-        print(f"[ERROR] Error updating Google Sheets: {e}")
+        print(f"✗ Error updating Google Sheets: {e}")
 
 def main():
     """Main execution function"""
@@ -310,10 +306,10 @@ def main():
     print("=" * 60)
     
     if IN_GITHUB_ACTIONS:
-        print("[OK] Running in GitHub Actions environment")
+        print("✓ Running in GitHub Actions environment")
         print(f"  Repository: {os.environ.get('GITHUB_REPOSITORY', 'N/A')}")
     else:
-        print("[OK] Running locally")
+        print("✓ Running locally")
     
     # Fetch data
     data = fetch_groww_data(params=None)
@@ -327,10 +323,10 @@ def main():
         if sheets_client and GOOGLE_SHEET_ID:
             save_to_google_sheets(data, sheets_client)
         elif not IN_GITHUB_ACTIONS:
-            print("[WARNING] Google Sheets not configured")
+            print("⚠️  Google Sheets not configured")
         
         # Print data summary
-        print("\n[INFO] Data summary:")
+        print("\n📊 Data summary:")
         if isinstance(data, dict):
             print(f"  Types count: {data.get('types_count', 'N/A')}")
             print(f"  Values per type: {data.get('values_per_type', 'N/A')}")
