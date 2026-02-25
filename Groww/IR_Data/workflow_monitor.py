@@ -15,7 +15,14 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Load environment variables
-load_dotenv()
+env_path = os.path.join(os.path.dirname(__file__), '.env')
+if os.path.exists(env_path):
+    try:
+        load_dotenv(env_path)
+    except Exception as e:
+        print(f"⚠️  Warning: Could not load .env file: {e}")
+else:
+    load_dotenv()  # Try to load from default location
 
 # Configuration
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN')
