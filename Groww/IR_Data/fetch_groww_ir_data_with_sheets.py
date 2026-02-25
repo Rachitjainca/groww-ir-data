@@ -160,7 +160,8 @@ def save_to_csv(data):
                     record = {
                         'fetch_time': fetch_time_gmt,
                         'metric_type': metric_type,
-                        'epoch_timestamp': epoch_timestamp
+                        'epoch_timestamp': epoch_timestamp,
+                        'value': convert_to_crores(value_obj.get('value'), metric_type)
                     }
                     records.append(record)
         
@@ -198,12 +199,14 @@ def save_to_google_sheets(data, client):
             for metric_type, values in data['data'].items():
                 for value_obj in values:
                     epoch_timestamp = value_obj.get('timestamp')
+                    converted_value = convert_to_crores(value_obj.get('value'), metric_type)
                     
-                    # All Data sheet: Fetch Time, Metric Type, Epoch Timestamp
+                    # All Data sheet: Fetch Time, Metric Type, Epoch Timestamp, Value
                     all_data_record = [
                         fetch_time_gmt,
                         metric_type,
-                        epoch_timestamp
+                        epoch_timestamp,
+                        converted_value
                     ]
                     all_records.append(all_data_record)
         
@@ -211,10 +214,10 @@ def save_to_google_sheets(data, client):
         try:
             all_data_sheet = spreadsheet.worksheet("All Data")
         except gspread.exceptions.WorksheetNotFound:
-            all_data_sheet = spreadsheet.add_worksheet(title="All Data", rows=1000, cols=3)
+            all_data_sheet = spreadsheet.add_worksheet(title="All Data", rows=1000, cols=4)
             # Add header
             all_data_sheet.append_row([
-                'Fetch Time', 'Metric Type', 'Epoch Timestamp'
+                'Fetch Time', 'Metric Type', 'Epoch Timestamp', 'Value'
             ])
         
         if all_records:
