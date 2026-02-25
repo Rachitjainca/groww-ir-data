@@ -208,34 +208,58 @@ def save_to_google_sheets(data, client):
         data (dict): Data to save
         client: gspread client
     """
-    if data is None or client is None:
+    if data is None:
+        return
+    
+    # Load previous values for change detection (always, even without client)
+    previous_values = load_previous_metric_values()
+    current_values = {}
+    metric_records = {}
+    
+    # Prepare metric data for deduplication
+    if isinstance(data, dict) and 'data' in data:
+        for metric_type, values in data['data'].items():
+            metric_records[metric_type] = []
+            
+            for value_obj in values:
+                epoch_timestamp = value_obj.get('timestamp')
+                raw_value = value_obj.get('value')
+                converted_value = convert_to_crores(raw_value, metric_type)
+                
+                # Create key for tracking
+                value_key = get_metric_value_key(metric_type, epoch_timestamp)
+                current_values[value_key] = raw_value
+                
+                # Metric sheet: Only collect if value changed
+                previous_value = previous_values.get(value_key)
+                if previous_value is None or previous_value != raw_value:
+                    metric_record = [
+                        metric_type,
+                        epoch_timestamp,
+                        converted_value
+                    ]
+                    metric_records[metric_type].append(metric_record)
+    
+    # Save tracking file (always, for next comparison)
+    save_previous_metric_values(current_values)
+    
+    # If no client, we can't save to Google Sheets
+    if client is None:
         return
     
     try:
-        # Load previous values for change detection
-        previous_values = load_previous_metric_values()
-        current_values = {}
-        
         # Open the spreadsheet
         spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
         
         # Prepare data
         fetch_time_gmt = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M:%S")
         all_records = []
-        metric_records = {}
         
         if isinstance(data, dict) and 'data' in data:
             for metric_type, values in data['data'].items():
-                metric_records[metric_type] = []
-                
                 for value_obj in values:
                     epoch_timestamp = value_obj.get('timestamp')
-                    raw_value = value_obj.get('value')
-                    converted_value = convert_to_crores(raw_value, metric_type)
-                    
-                    # Create key for tracking
-                    value_key = get_metric_value_key(metric_type, epoch_timestamp)
-                    current_values[value_key] = raw_value
+                    converted_value = convert_to_crores(value_obj.get('value'), metric_type)
                     
                     # All Data sheet: Always append (historical record)
                     all_data_record = [
@@ -245,16 +269,6 @@ def save_to_google_sheets(data, client):
                         converted_value
                     ]
                     all_records.append(all_data_record)
-                    
-                    # Metric sheet: Only append if value changed
-                    previous_value = previous_values.get(value_key)
-                    if previous_value is None or previous_value != raw_value:
-                        metric_record = [
-                            metric_type,
-                            epoch_timestamp,
-                            converted_value
-                        ]
-                        metric_records[metric_type].append(metric_record)
         
         # Update "All Data" sheet (always)
         try:
@@ -289,10 +303,7 @@ def save_to_google_sheets(data, client):
         if changed_count > 0:
             print(f"✓ Google Sheets: {changed_count} changed metric values saved")
         else:
-            print("✓ Google Sheets: No metric values changed")
-        
-        # Save current values for next comparison
-        save_previous_metric_values(current_values)
+            print("✓ Google Sheets: No metric values changed (deduplication)")
     
     except gspread.exceptions.APIError as e:
         print(f"✗ Google Sheets API Error: {e}")
