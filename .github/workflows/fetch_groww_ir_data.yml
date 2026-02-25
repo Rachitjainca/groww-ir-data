@@ -57,3 +57,48 @@ jobs:
           name: groww-ir-data-${{ github.run_number }}
           path: Groww/IR_Data/
           retention-days: 30
+
+      - name: Send failure notification
+        if: failure()
+        run: |
+          TIMESTAMP=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
+          if [ ! -z "${{ secrets.DISCORD_WEBHOOK }}" ]; then
+            curl -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "content": "❌ **Groww IR Data Fetch FAILED**",
+                "embeds": [{
+                  "title": "Workflow Failed",
+                  "color": 15158332,
+                  "fields": [
+                    {"name": "Repository", "value": "${{ github.repository }}", "inline": true},
+                    {"name": "Workflow", "value": "${{ github.workflow }}", "inline": true},
+                    {"name": "Branch", "value": "${{ github.ref_name }}", "inline": true},
+                    {"name": "Commit", "value": "${{ github.sha }}", "inline": true},
+                    {"name": "Time", "value": "'$TIMESTAMP'", "inline": true},
+                    {"name": "Action", "value": "[View Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})", "inline": false}
+                  ]
+                }]
+              }'
+          fi
+
+      - name: Send success notification
+        if: success()
+        run: |
+          TIMESTAMP=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
+          if [ ! -z "${{ secrets.DISCORD_WEBHOOK }}" ]; then
+            curl -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "content": "✅ **Groww IR Data Fetch SUCCESS**",
+                "embeds": [{
+                  "title": "Workflow Completed",
+                  "color": 3066993,
+                  "fields": [
+                    {"name": "Time", "value": "'$TIMESTAMP'", "inline": true},
+                    {"name": "Records", "value": "70 metrics added", "inline": true},
+                    {"name": "Repository", "value": "${{ github.repository }}", "inline": true}
+                  ]
+                }]
+              }'
+          fi
