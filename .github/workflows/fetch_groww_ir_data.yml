@@ -2,7 +2,7 @@ name: Fetch Groww IR Data
 
 on:
   schedule:
-    - cron: '0 * * * *'  # Every hour at :00 UTC
+    - cron: '* * * * *'  # Every minute UTC
   workflow_dispatch:      # Allow manual trigger
 
 jobs:
