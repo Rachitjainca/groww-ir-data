@@ -1,0 +1,58 @@
+name: Fetch Groww IR Data
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # Every hour at :00 UTC
+  workflow_dispatch:      # Allow manual trigger
+
+jobs:
+  fetch-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pandas urllib3 gspread google-auth google-auth-oauthlib python-dotenv
+
+      - name: Fetch and update data
+        env:
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+          GITHUB_ACTIONS: 'true'
+        run: |
+          cd Groww/IR_Data
+          python fetch_groww_ir_data_with_sheets.py
+
+      - name: Configure git
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+      - name: Commit data changes
+        run: |
+          git add Groww/IR_Data/*.csv Groww/IR_Data/*.jsonl 2>/dev/null || true
+          git commit -m "Auto: Update Groww IR data - $(date -u +'%Y-%m-%d %H:%M:%S UTC')" --allow-empty || true
+
+      - name: Push changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: main
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: groww-ir-data-${{ github.run_number }}
+          path: Groww/IR_Data/
+          retention-days: 30
