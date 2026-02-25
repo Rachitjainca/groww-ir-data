@@ -178,7 +178,7 @@ def save_to_csv(data):
 def save_to_google_sheets(data, client):
     """
     Save API response to Google Sheets
-    Creates "All Data" sheet (with Fetch Time & Epoch) and individual metric type sheets (simplified)
+    Creates "All Data" sheet and individual metric type sheets
     
     Args:
         data (dict): Data to save
@@ -194,9 +194,12 @@ def save_to_google_sheets(data, client):
         # Prepare data
         fetch_time_gmt = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M:%S")
         all_records = []
+        metric_records = {}
         
         if isinstance(data, dict) and 'data' in data:
             for metric_type, values in data['data'].items():
+                metric_records[metric_type] = []
+                
                 for value_obj in values:
                     epoch_timestamp = value_obj.get('timestamp')
                     converted_value = convert_to_crores(value_obj.get('value'), metric_type)
@@ -209,6 +212,14 @@ def save_to_google_sheets(data, client):
                         converted_value
                     ]
                     all_records.append(all_data_record)
+                    
+                    # Metric sheet: Metric Type, Epoch Timestamp, Value
+                    metric_record = [
+                        metric_type,
+                        epoch_timestamp,
+                        converted_value
+                    ]
+                    metric_records[metric_type].append(metric_record)
         
         # Update "All Data" sheet
         try:
@@ -223,6 +234,24 @@ def save_to_google_sheets(data, client):
         if all_records:
             all_data_sheet.append_rows(all_records)
             print(f"✓ Google Sheets (All Data): {len(all_records)} records appended")
+        
+        # Update metric-specific sheets
+        for metric_type, records in metric_records.items():
+            sheet_name = f"{metric_type}_Data"
+            
+            try:
+                metric_sheet = spreadsheet.worksheet(sheet_name)
+            except gspread.exceptions.WorksheetNotFound:
+                metric_sheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=3)
+                # Add header for metric sheets
+                metric_sheet.append_row([
+                    'Metric Type', 'Epoch Timestamp', 'Value'
+                ])
+            
+            if records:
+                metric_sheet.append_rows(records)
+        
+        print(f"✓ Google Sheets ({len(metric_records)} metric sheets): Updated")
     
     except gspread.exceptions.APIError as e:
         print(f"✗ Google Sheets API Error: {e}")
