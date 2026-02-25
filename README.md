@@ -1,122 +1,186 @@
 # Groww IR Data Fetcher
 
-Automated hourly data fetcher for Groww's Investor Relations metrics, with dual output to CSV and Google Sheets.
+Automated data collection pipeline for Groww financial metrics with deduplication, CSV storage, and Google Sheets integration.
 
 ## Features
 
-✨ **Automated Hourly Fetch** - GitHub Actions runs every hour (0 * * * * UTC)  
-📊 **Dual Output** - CSV backup + Google Sheets primary storage  
-📈 **Metric Sheets** - Separate sheets for each metric type (AUM, CNTU, MF assets, etc.)  
-🔐 **Secure** - Credentials stored in GitHub Secrets, not in code  
-📝 **Append-only** - Historical data accumulates without overwriting  
+✅ **Automatic Data Collection** - Fetches 70 metrics every 5 minutes via GitHub Actions  
+✅ **Deduplication** - Metric sheets store only changed values (prevent duplicate rows)  
+✅ **Multi-Storage** - CSV (all records) + Google Sheets (All Data + metric-specific sheets)  
+✅ **Data Conversion** - Automatic Crores conversion (÷10^7) with proper GMT timestamps  
+✅ **Hybrid Execution** - GitHub Actions + local scheduler backup  
+✅ **Notifications** - Success/failure alerts via Discord/Slack  
 
-## Quick Setup (5 minutes)
+## Project Structure
 
-### 1. Clone Repository
-```bash
-git clone https://github.com/Rachitjainca/groww-ir-data.git
-cd groww-ir-data
+```
+groww-ir-data/
+├── .github/
+│   └── workflows/
+│       └── fetch_groww_ir_data.yml    # GitHub Actions automation (every 5 min)
+├── .vscode/
+│   └── settings.json                  # VS Code configuration
+├── .venv/                             # Python virtual environment
+├── Groww/
+│   └── IR_Data/
+│       ├── fetch_groww_ir_data_with_sheets.py  # Main script (production)
+│       ├── scheduler.py                         # Local scheduler backup (every 5 min)
+│       ├── .env                                 # Configuration (GitHub token, webhooks)
+│       ├── .env.example                         # Configuration template
+│       └── google_sheets_creds.json             # Google Sheets credentials
+├── requirements.txt                  # Python dependencies
+└── README.md                          # This file
 ```
 
-### 2. Set Up Virtual Environment
-```bash
-python -m venv venv
-venv\Scripts\activate  # Windows
-source venv/bin/activate  # macOS/Linux
+## Quick Start
+
+### 1. Local Setup
+
+```powershell
+# Clone repository
+git clone https://github.com/Rachitjainca/groww-ir-data.git
+cd groww-ir-data
+
+# Create virtual environment
+python -m venv .venv
+
+# Activate virtual environment
+.venv\Scripts\Activate.ps1
+
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-### 3. Google Sheets Setup
-- Create a Google Cloud project and service account
-- Download credentials JSON file
-- Share your Google Sheet with the service account email
-- Save credentials as `Groww/IR_Data/google_sheets_creds.json`
-- Create `.env` file: `GOOGLE_SHEET_ID=your_sheet_id`
+### 2. Configure Environment
 
-### 4. Test Locally
-```bash
+Copy `.env.example` to `.env` in `Groww/IR_Data/`:
+```powershell
+cp Groww/IR_Data/.env.example Groww/IR_Data/.env
+```
+
+Edit `.env` and fill in:
+```env
+GITHUB_TOKEN=your_github_token_here
+SLACK_WEBHOOK=your_slack_webhook_url (optional)
+DISCORD_WEBHOOK=your_discord_webhook_url (optional)
+GOOGLE_SHEET_ID=your_sheet_id_here
+```
+
+### 3. Set Up Google Sheets (Optional)
+
+Place `google_sheets_creds.json` in `Groww/IR_Data/` (service account credentials)
+
+### 4. Run the Script
+
+**Local execution (single run):**
+```powershell
 cd Groww/IR_Data
 python fetch_groww_ir_data_with_sheets.py
 ```
 
-### 5. Deploy to GitHub
-```bash
-# Add GitHub Secrets (Settings > Secrets):
-# - GOOGLE_SHEET_ID: Your sheet ID
-# - GOOGLE_SHEETS_CREDENTIALS: Full JSON file contents
-
-git add .
-git commit -m "Initial setup"
-git push origin main
+**Local scheduler (every 5 minutes):**
+```powershell
+cd Groww/IR_Data
+python scheduler.py
 ```
 
-## Data Structure
+## How It Works
 
-**CSV Output:** `Groww/IR_Data/groww_ir_data.csv`
+### Data Flow
+
+1. **Fetch** → API call to `https://client-pixel.groww.in/api/v1/ir-data/calculate`
+2. **Process** → Convert to Crores, format timestamps (GMT)
+3. **Deduplicate** → Track previous values in `.previous_metric_values.json`
+4. **Store** → 
+   - CSV: All 70 records (historical)
+   - Google Sheets "All Data": All 70 records (historical)
+   - Google Sheets "Metric sheets": Only changed values (deduplication)
+5. **Notify** → Send success/failure alerts to Discord/Slack
+
+### Deduplication Logic
+
 ```
-fetch_time, metric_type, epoch_timestamp, timestamp_readable, value
-2026-02-25 19:10:37, CNTU, 1740502237000, 25/02/2026 19:10:37, 12345
+Run 1: AUM = 31094400 → Saved to metric sheet ✓
+Run 2: AUM = 31094400 → Skipped (no change) ✓
+Run 3: AUM = 31094405 → Saved to metric sheet (value changed) ✓
 ```
 
-**Google Sheets:**
-- **All Data** - Complete record of all fetches (70 records/hour)
-- **CNTU_Data** - Customer count metrics
-- **AUM_Data** - Assets under management
-- **mf_assets_Data** - Mutual fund assets
-- **mf_sip_inflows_Data** - SIP inflows
-- **equity_adto_Data** - Equity ADTO
-- **stocks_adto_Data** - Stocks ADTO
-- **stocks_assets_Data** - Stocks assets
+- **All Data sheet**: Always grows by 70 records per run
+- **Metric sheets**: Only grow when values change
+- **Tracking file**: `.previous_metric_values.json` (hidden, auto-created)
 
-## API Reference
+## GitHub Actions Automation
 
-**Endpoint:** `https://client-pixel.groww.in/api/v1/ir-data/calculate`  
-**Method:** GET  
-**Returns:** 70 metrics across 7 types, 10 values each  
-**Rate:** Not rate-limited, safe for hourly calls  
+### Schedule
 
-## Documentation
+Runs automatically **every 5 minutes** via GitHub Actions:
 
-- [Google Sheets Setup Guide](Groww/IR_Data/GOOGLE_SHEETS_SETUP.md) - Detailed step-by-step instructions
-- [Quick Setup](Groww/IR_Data/QUICK_SETUP_SHEETS.md) - Fast reference for GitHub Actions
+```yaml
+on:
+  schedule:
+    - cron: '*/5 * * * *'  # Every 5 minutes UTC
+  workflow_dispatch:       # Manual trigger via UI
+```
 
-## Scripts
+Activation: Typically 24-48 hours after first push
 
-- `fetch_groww_ir_data_with_sheets.py` - Main script (CSV + Google Sheets)
-- `fetch_groww_ir_data.py` - CSV-only backup version
+## Dependencies
 
-## Files & Privacy
+- **requests** - HTTP requests
+- **pandas** - Data manipulation
+- **gspread** - Google Sheets API
+- **google-auth** - Google authentication
+- **python-dotenv** - Environment variables
+- **urllib3** - HTTPS handling
+- **schedule** - Local scheduling
 
-- `google_sheets_creds.json` - **Never commit!** (in .gitignore)
-- `.env` - **Never commit!** (in .gitignore)
-- CSV & JSONL data files - Tracked in git for data history
+See `requirements.txt` for versions.
 
-## Automation Status
+## File Descriptions
 
-✅ Hourly schedule: `0 * * * * *` (every hour at :00 UTC)  
-✅ GitHub Actions: Configured in `.github/workflows/fetch_groww_ir_data.yml`  
-✅ Automatic commits: CSV changes pushed hourly  
-✅ Artifact backup: 30-day retention in Actions  
+| File | Purpose |
+|------|---------|
+| `fetch_groww_ir_data_with_sheets.py` | Main production script with deduplication |
+| `scheduler.py` | Local backup scheduler (5-min interval) |
+| `.env` | Configuration (tokens, webhooks, sheet ID) |
+| `.env.example` | Configuration template |
+| `google_sheets_creds.json` | Google Sheets service account credentials |
+| `.github/workflows/fetch_groww_ir_data.yml` | GitHub Actions automation config |
+
+## Outputs
+
+### CSV Files
+- `groww_ir_data.csv` - All records (append-mode)
+- Columns: `fetch_time, metric_type, epoch_timestamp, value`
+
+### Google Sheets
+- **All Data sheet** - Complete history (all runs, all metrics)
+- **Metric sheets** - AUM_Data, CNTU_Data, etc. (deduplicated values only)
+
+### Tracking
+- `.previous_metric_values.json` - Previous metric values (for deduplication)
 
 ## Troubleshooting
 
-**"ModuleNotFoundError: No module named 'gspread'"**
-```bash
-pip install -r requirements.txt
-```
+### GitHub Actions not running?
+- Wait 24-48 hours for schedule activation (GitHub standard)
+- Try one manual trigger: Actions → "Fetch Groww IR Data" → "Run workflow"
 
-**"Google Sheet is empty"**
-- Verify service account email is shared with Edit access on sheet
-- Check GitHub Secrets are set correctly
-- Run workflow manually and check logs
+### API returning 403 Forbidden?
+- Check if Groww API endpoint requires authentication
+- Verify IP not rate-limited
 
-**"SSL Certificate Error"**
-- This is handled automatically in the script with `verify=False`
+### Google Sheets not updating?
+- Verify `GOOGLE_SHEETS_CREDENTIALS` is valid JSON
+- Check sheet ID is correct and credentials have access
+
+## Notes
+
+- All timestamps are in GMT (DD/MM/YYYY HH:MM:SS format)
+- Values converted to Crores (÷10^7) except CNTU metric
+- Deduplication applies ONLY to metric sheets (All Data sheet always grows)
+- Local scheduler runs every 5 minutes as backup to GitHub Actions
 
 ## License
 
-MIT
-
-## Status
-
-🟢 **Production Ready** - Tested with 70 records/hour sync to Google Sheets
+This project is for personal use with Groww API data.
