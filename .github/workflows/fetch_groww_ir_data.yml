@@ -62,6 +62,8 @@ jobs:
         if: failure()
         run: |
           TIMESTAMP=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
+          
+          # Discord webhook
           if [ ! -z "${{ secrets.DISCORD_WEBHOOK }}" ]; then
             curl -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
               -H "Content-Type: application/json" \
@@ -81,11 +83,32 @@ jobs:
                 }]
               }'
           fi
+          
+          # Slack webhook
+          if [ ! -z "${{ secrets.SLACK_WEBHOOK }}" ]; then
+            curl -X POST "${{ secrets.SLACK_WEBHOOK }}" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "text": "❌ Groww IR Data Fetch Failed",
+                "blocks": [
+                  {"type": "header", "text": {"type": "plain_text", "text": "❌ Workflow Failed"}},
+                  {"type": "section", "fields": [
+                    {"type": "mrkdwn", "text": "*Repository:*\n${{ github.repository }}"},
+                    {"type": "mrkdwn", "text": "*Workflow:*\n${{ github.workflow }}"},
+                    {"type": "mrkdwn", "text": "*Branch:*\n${{ github.ref_name }}"},
+                    {"type": "mrkdwn", "text": "*Time:*\n'$TIMESTAMP'"}
+                  ]},
+                  {"type": "section", "text": {"type": "mrkdwn", "text": "<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>"}}
+                ]
+              }'
+          fi
 
       - name: Send success notification
         if: success()
         run: |
           TIMESTAMP=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
+          
+          # Discord webhook
           if [ ! -z "${{ secrets.DISCORD_WEBHOOK }}" ]; then
             curl -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
               -H "Content-Type: application/json" \
@@ -100,5 +123,22 @@ jobs:
                     {"name": "Repository", "value": "${{ github.repository }}", "inline": true}
                   ]
                 }]
+              }'
+          fi
+          
+          # Slack webhook
+          if [ ! -z "${{ secrets.SLACK_WEBHOOK }}" ]; then
+            curl -X POST "${{ secrets.SLACK_WEBHOOK }}" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "text": "✅ Groww IR Data Fetch Success",
+                "blocks": [
+                  {"type": "header", "text": {"type": "plain_text", "text": "✅ Workflow Completed"}},
+                  {"type": "section", "fields": [
+                    {"type": "mrkdwn", "text": "*Time:*\n'$TIMESTAMP'"},
+                    {"type": "mrkdwn", "text": "*Records:*\n70 metrics added"},
+                    {"type": "mrkdwn", "text": "*Status:*\nSuccess"}
+                  ]}
+                ]
               }'
           fi

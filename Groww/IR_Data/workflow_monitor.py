@@ -18,6 +18,7 @@ GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN')
 GITHUB_REPO = 'Rachitjainca/groww-ir-data'
 WORKFLOW_NAME = 'Fetch Groww IR Data'
 DISCORD_WEBHOOK = os.environ.get('DISCORD_WEBHOOK')
+SLACK_WEBHOOK = os.environ.get('SLACK_WEBHOOK')
 
 # GitHub API
 GITHUB_API = 'https://api.github.com'
@@ -48,7 +49,6 @@ def get_workflow_runs(limit=10):
 def send_discord_notification(title, description, color, details):
     """Send notification to Discord webhook"""
     if not DISCORD_WEBHOOK:
-        print("⚠️  Discord webhook not configured")
         return False
     
     payload = {
@@ -67,6 +67,43 @@ def send_discord_notification(title, description, color, details):
     
     response = requests.post(DISCORD_WEBHOOK, json=payload)
     return response.status_code == 204
+
+def send_slack_notification(title, description, color, details):
+    """Send notification to Slack webhook"""
+    if not SLACK_WEBHOOK:
+        return False
+    
+    # Convert color to emoji
+    emoji = "❌" if color == 15158332 else "✅" if color == 3066993 else "⚠️"
+    
+    # Build fields for Slack
+    fields = []
+    for k, v in details.items():
+        fields.append({
+            "type": "mrkdwn",
+            "text": f"*{k}:*\n{str(v)[:500]}"
+        })
+    
+    payload = {
+        "text": f"{emoji} {title}",
+        "blocks": [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": f"{emoji} {title}"}
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": description}
+            },
+            {
+                "type": "section",
+                "fields": fields
+            }
+        ]
+    }
+    
+    response = requests.post(SLACK_WEBHOOK, json=payload)
+    return response.status_code == 200
 
 def check_workflow_health():
     """Check if workflow is running correctly"""
@@ -150,6 +187,13 @@ def check_workflow_health():
             details=details
         )
         
+        send_slack_notification(
+            title="⚠️ Workflow Failure Alert",
+            description=f"{len(recent_failures)} recent workflow failures detected",
+            color=15158332,  # Red
+            details=details
+        )
+        
         return False
     
     elif len(recent_runs) > 0 and recent_runs[0]['conclusion'] == 'failure':
@@ -173,6 +217,13 @@ def check_workflow_health():
             details=details
         )
         
+        send_slack_notification(
+            title="Groww IR Data Fetch Failed",
+            description="Latest workflow run failed",
+            color=15158332,  # Red
+            details=details
+        )
+        
         return False
     
     else:
@@ -189,6 +240,10 @@ GITHUB_TOKEN=your_github_personal_access_token
 # Discord Webhook (optional)
 # Get from: https://discord.com/developers/applications
 DISCORD_WEBHOOK=https://discordapp.com/api/webhooks/YOUR_WEBHOOK_URL
+
+# Slack Webhook (optional)
+# Get from: https://api.slack.com/messaging/webhooks
+SLACK_WEBHOOK=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
 """
     
     env_example = os.path.join(os.path.dirname(__file__), '.env.monitor.example')
