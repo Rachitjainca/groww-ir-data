@@ -131,9 +131,7 @@ def save_response(data, format_type='json'):
                         record = {
                             'fetch_time': fetch_time_gmt,
                             'metric_type': metric_type,
-                            'epoch_timestamp': epoch_timestamp,
-                            'timestamp_readable': epoch_to_formatted_time(epoch_timestamp),
-                            'value': convert_to_crores(value_obj.get('value'), metric_type)
+                            'epoch_timestamp': epoch_timestamp
                         }
                         records.append(record)
             

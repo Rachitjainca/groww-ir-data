@@ -160,9 +160,7 @@ def save_to_csv(data):
                     record = {
                         'fetch_time': fetch_time_gmt,
                         'metric_type': metric_type,
-                        'epoch_timestamp': epoch_timestamp,
-                        'timestamp_readable': epoch_to_formatted_time(epoch_timestamp),
-                        'value': convert_to_crores(value_obj.get('value'), metric_type)
+                        'epoch_timestamp': epoch_timestamp
                     }
                     records.append(record)
         
@@ -195,66 +193,33 @@ def save_to_google_sheets(data, client):
         # Prepare data
         fetch_time_gmt = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M:%S")
         all_records = []
-        metric_records = {}
         
         if isinstance(data, dict) and 'data' in data:
             for metric_type, values in data['data'].items():
-                metric_records[metric_type] = []
-                
                 for value_obj in values:
                     epoch_timestamp = value_obj.get('timestamp')
-                    timestamp_readable = epoch_to_formatted_time(epoch_timestamp)
-                    converted_value = convert_to_crores(value_obj.get('value'), metric_type)
                     
-                    # All Data sheet: includes Fetch Time and Epoch
+                    # All Data sheet: Fetch Time, Metric Type, Epoch Timestamp
                     all_data_record = [
                         fetch_time_gmt,
                         metric_type,
-                        epoch_timestamp,
-                        timestamp_readable,
-                        converted_value
+                        epoch_timestamp
                     ]
                     all_records.append(all_data_record)
-                    
-                    # Metric sheet: only Metric Type, Timestamp Readable, Value
-                    metric_record = [
-                        metric_type,
-                        timestamp_readable,
-                        converted_value
-                    ]
-                    metric_records[metric_type].append(metric_record)
         
         # Update "All Data" sheet
         try:
             all_data_sheet = spreadsheet.worksheet("All Data")
         except gspread.exceptions.WorksheetNotFound:
-            all_data_sheet = spreadsheet.add_worksheet(title="All Data", rows=1000, cols=5)
+            all_data_sheet = spreadsheet.add_worksheet(title="All Data", rows=1000, cols=3)
             # Add header
             all_data_sheet.append_row([
-                'Fetch Time', 'Metric Type', 'Epoch Timestamp', 'Timestamp Readable', 'Value'
+                'Fetch Time', 'Metric Type', 'Epoch Timestamp'
             ])
         
         if all_records:
             all_data_sheet.append_rows(all_records)
             print(f"✓ Google Sheets (All Data): {len(all_records)} records appended")
-        
-        # Update metric-specific sheets
-        for metric_type, records in metric_records.items():
-            sheet_name = f"{metric_type}_Data"
-            
-            try:
-                metric_sheet = spreadsheet.worksheet(sheet_name)
-            except gspread.exceptions.WorksheetNotFound:
-                metric_sheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=3)
-                # Add header for metric sheets (no Fetch Time and Epoch)
-                metric_sheet.append_row([
-                    'Metric Type', 'Timestamp Readable', 'Value'
-                ])
-            
-            if records:
-                metric_sheet.append_rows(records)
-        
-        print(f"✓ Google Sheets ({len(metric_records)} metric sheets): Updated")
     
     except gspread.exceptions.APIError as e:
         print(f"✗ Google Sheets API Error: {e}")
