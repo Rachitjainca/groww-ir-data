@@ -2,7 +2,7 @@ import os
 import requests
 import pandas as pd
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 import urllib3
 import gspread
@@ -66,20 +66,39 @@ def get_google_sheets_client():
 
 def epoch_to_formatted_time(epoch_ms):
     """
-    Convert epoch time in milliseconds to DD/MM/YYYY HH:MM:SS format
+    Convert epoch time in milliseconds to DD/MM/YYYY HH:MM:SS GMT format
     
     Args:
         epoch_ms (int): Epoch time in milliseconds
     
     Returns:
-        str: Formatted datetime string
+        str: Formatted datetime string in GMT
     """
     try:
         epoch_seconds = epoch_ms / 1000
-        dt = datetime.fromtimestamp(epoch_seconds)
+        dt = datetime.fromtimestamp(epoch_seconds, tz=timezone.utc)
         return dt.strftime("%d/%m/%Y %H:%M:%S")
     except (ValueError, TypeError, OSError):
         return "N/A"
+
+def convert_to_crores(value, metric_type):
+    """
+    Convert value to Crores (divide by 10^7) except for CNTU
+    
+    Args:
+        value: Value to convert
+        metric_type (str): Type of metric (CNTU keeps original value)
+    
+    Returns:
+        float: Converted value or original if CNTU
+    """
+    if metric_type == 'CNTU' or value is None:
+        return value
+    
+    try:
+        return float(value) / 1e7
+    except (ValueError, TypeError):
+        return value
 
 # Create output directory if not exists
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -103,7 +122,7 @@ def fetch_groww_data(params=None, headers=None):
             }
         
         print(f"Fetching data from {API_URL}...")
-        print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S GMT')}")
         
         # Make request
         response = requests.get(API_URL, params=params, headers=headers, timeout=TIMEOUT, verify=False)
@@ -132,16 +151,18 @@ def save_to_csv(data):
     filepath = os.path.join(OUTPUT_DIR, "groww_ir_data.csv")
     try:
         records = []
+        fetch_time_gmt = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M:%S")
+        
         if isinstance(data, dict) and 'data' in data:
             for metric_type, values in data['data'].items():
                 for value_obj in values:
                     epoch_timestamp = value_obj.get('timestamp')
                     record = {
-                        'fetch_time': datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+                        'fetch_time': fetch_time_gmt,
                         'metric_type': metric_type,
                         'epoch_timestamp': epoch_timestamp,
                         'timestamp_readable': epoch_to_formatted_time(epoch_timestamp),
-                        'value': value_obj.get('value')
+                        'value': convert_to_crores(value_obj.get('value'), metric_type)
                     }
                     records.append(record)
         
@@ -158,7 +179,7 @@ def save_to_csv(data):
 def save_to_google_sheets(data, client):
     """
     Save API response to Google Sheets
-    Creates "All Data" sheet and individual metric type sheets
+    Creates "All Data" sheet (with Fetch Time & Epoch) and individual metric type sheets (simplified)
     
     Args:
         data (dict): Data to save
@@ -172,7 +193,7 @@ def save_to_google_sheets(data, client):
         spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
         
         # Prepare data
-        fetch_time_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        fetch_time_gmt = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M:%S")
         all_records = []
         metric_records = {}
         
@@ -182,15 +203,26 @@ def save_to_google_sheets(data, client):
                 
                 for value_obj in values:
                     epoch_timestamp = value_obj.get('timestamp')
-                    record = [
-                        fetch_time_str,
+                    timestamp_readable = epoch_to_formatted_time(epoch_timestamp)
+                    converted_value = convert_to_crores(value_obj.get('value'), metric_type)
+                    
+                    # All Data sheet: includes Fetch Time and Epoch
+                    all_data_record = [
+                        fetch_time_gmt,
                         metric_type,
                         epoch_timestamp,
-                        epoch_to_formatted_time(epoch_timestamp),
-                        value_obj.get('value')
+                        timestamp_readable,
+                        converted_value
                     ]
-                    all_records.append(record)
-                    metric_records[metric_type].append(record)
+                    all_records.append(all_data_record)
+                    
+                    # Metric sheet: only Metric Type, Timestamp Readable, Value
+                    metric_record = [
+                        metric_type,
+                        timestamp_readable,
+                        converted_value
+                    ]
+                    metric_records[metric_type].append(metric_record)
         
         # Update "All Data" sheet
         try:
@@ -213,10 +245,10 @@ def save_to_google_sheets(data, client):
             try:
                 metric_sheet = spreadsheet.worksheet(sheet_name)
             except gspread.exceptions.WorksheetNotFound:
-                metric_sheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=5)
-                # Add header
+                metric_sheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=3)
+                # Add header for metric sheets (no Fetch Time and Epoch)
                 metric_sheet.append_row([
-                    'Fetch Time', 'Metric Type', 'Epoch Timestamp', 'Timestamp Readable', 'Value'
+                    'Metric Type', 'Timestamp Readable', 'Value'
                 ])
             
             if records:

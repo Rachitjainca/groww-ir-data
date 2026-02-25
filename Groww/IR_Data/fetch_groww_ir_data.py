@@ -2,7 +2,7 @@ import os
 import requests
 import pandas as pd
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 import urllib3
 
@@ -18,20 +18,39 @@ TIMEOUT = 30
 
 def epoch_to_formatted_time(epoch_ms):
     """
-    Convert epoch time in milliseconds to DD/MM/YYYY HH:MM:SS format
+    Convert epoch time in milliseconds to DD/MM/YYYY HH:MM:SS GMT format
     
     Args:
         epoch_ms (int): Epoch time in milliseconds
     
     Returns:
-        str: Formatted datetime string
+        str: Formatted datetime string in GMT
     """
     try:
         epoch_seconds = epoch_ms / 1000
-        dt = datetime.fromtimestamp(epoch_seconds)
+        dt = datetime.fromtimestamp(epoch_seconds, tz=timezone.utc)
         return dt.strftime("%d/%m/%Y %H:%M:%S")
     except (ValueError, TypeError, OSError):
         return "N/A"
+
+def convert_to_crores(value, metric_type):
+    """
+    Convert value to Crores (divide by 10^7) except for CNTU
+    
+    Args:
+        value: Value to convert
+        metric_type (str): Type of metric (CNTU keeps original value)
+    
+    Returns:
+        float: Converted value or original if CNTU
+    """
+    if metric_type == 'CNTU' or value is None:
+        return value
+    
+    try:
+        return float(value) / 1e7
+    except (ValueError, TypeError):
+        return value
 
 # Create output directory if not exists
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -55,7 +74,7 @@ def fetch_groww_data(params=None, headers=None):
             }
         
         print(f"Fetching data from {API_URL}...")
-        print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S GMT')}")
         
         # Make request (try GET first, can change to POST if needed)
         response = requests.get(API_URL, params=params, headers=headers, timeout=TIMEOUT, verify=False)
@@ -87,7 +106,7 @@ def save_response(data, format_type='json'):
         try:
             # Append as JSONL (JSON Lines) format - one JSON object per line
             record = {
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'data': data
             }
             with open(filepath, 'a', encoding='utf-8') as f:
@@ -102,17 +121,19 @@ def save_response(data, format_type='json'):
         try:
             # Flatten the data for CSV output
             records = []
+            fetch_time_gmt = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M:%S")
+            
             if isinstance(data, dict) and 'data' in data:
                 # Extract all metric types and their values
                 for metric_type, values in data['data'].items():
                     for value_obj in values:
                         epoch_timestamp = value_obj.get('timestamp')
                         record = {
-                            'fetch_time': datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+                            'fetch_time': fetch_time_gmt,
                             'metric_type': metric_type,
                             'epoch_timestamp': epoch_timestamp,
                             'timestamp_readable': epoch_to_formatted_time(epoch_timestamp),
-                            'value': value_obj.get('value')
+                            'value': convert_to_crores(value_obj.get('value'), metric_type)
                         }
                         records.append(record)
             
