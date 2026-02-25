@@ -9,6 +9,10 @@ import requests
 import json
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+import urllib3
+
+# Suppress SSL warnings
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Load environment variables
 load_dotenv()
@@ -31,7 +35,7 @@ def get_workflow_runs(limit=10):
     }
     
     url = f'{GITHUB_API}/repos/{GITHUB_REPO}/actions/workflows/@main'
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=headers, verify=False)
     
     if response.status_code != 200:
         print(f"❌ Error fetching workflow: {response.status_code}")
@@ -43,7 +47,7 @@ def get_workflow_runs(limit=10):
     runs_url = f'{GITHUB_API}/repos/{GITHUB_REPO}/actions/workflows/{workflow_id}/runs'
     params = {'per_page': limit, 'status': 'all'}
     
-    runs_response = requests.get(runs_url, headers=headers, params=params)
+    runs_response = requests.get(runs_url, headers=headers, params=params, verify=False)
     return runs_response.json()['workflow_runs']
 
 def send_discord_notification(title, description, color, details):
@@ -65,7 +69,7 @@ def send_discord_notification(title, description, color, details):
         }]
     }
     
-    response = requests.post(DISCORD_WEBHOOK, json=payload)
+    response = requests.post(DISCORD_WEBHOOK, json=payload, verify=False)
     return response.status_code == 204
 
 def send_slack_notification(title, description, color, details):
@@ -102,7 +106,7 @@ def send_slack_notification(title, description, color, details):
         ]
     }
     
-    response = requests.post(SLACK_WEBHOOK, json=payload)
+    response = requests.post(SLACK_WEBHOOK, json=payload, verify=False)
     return response.status_code == 200
 
 def check_workflow_health():
