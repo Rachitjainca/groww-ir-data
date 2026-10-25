@@ -5,6 +5,9 @@ on:
     - cron: '*/5 * * * *'  # Every 5 minutes UTC (GitHub minimum)
   workflow_dispatch:       # Allow manual trigger
 
+permissions:
+  contents: write
+
 jobs:
   fetch-data:
     runs-on: ubuntu-latest
